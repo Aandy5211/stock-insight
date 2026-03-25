@@ -224,6 +224,12 @@ hr { border-color: #1a1a2e !important; }
 [data-testid="stDecoration"],
 #MainMenu,
 footer { visibility: hidden !important; height: 0 !important; }
+
+/* ── 隐藏右下角 Manage app 按钮 ── */
+[data-testid="stStatusWidget"],
+[data-testid="manage-app-button"],
+.st-emotion-cache-fis6aj,
+iframe[title="streamlit_analytics"] { display: none !important; }
 </style>
 """
 
