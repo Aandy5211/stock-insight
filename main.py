@@ -90,8 +90,8 @@ if search_btn and stock_input.strip():
     st.session_state["selected_code"] = selected_code
 
 
-# ── 搜索结果展示 ──────────────────────────────────────────────────────────────
-if stock_input.strip() and not search_btn and len(stock_input) >= 2:
+# ── 搜索结果展示（仅在点击搜索按钮时触发）────────────────────────────────────
+if search_btn and stock_input.strip():
     with st.spinner("搜索中..."):
         results = search_stock(stock_input.strip())
     if results is not None and not results.empty:
@@ -144,11 +144,30 @@ if not selected_code:
     st.stop()
 
 
-# ── 加载数据 ──────────────────────────────────────────────────────────────────
+# ── 加载数据（并行）──────────────────────────────────────────────────────────
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_main_data(code: str):
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_quote   = ex.submit(get_quote, code)
+        f_metrics = ex.submit(get_financial_metrics, code)
+        f_hist    = ex.submit(get_price_history, code)
+        try:
+            _quote = f_quote.result(timeout=20)
+        except Exception:
+            _quote = None
+        try:
+            _metrics = f_metrics.result(timeout=20)
+        except Exception:
+            _metrics = []
+        try:
+            _hist = f_hist.result(timeout=20)
+        except Exception:
+            _hist = None
+    return _quote, _metrics, _hist
+
 with st.spinner(f"正在加载 {selected_code} 数据..."):
-    quote = get_quote(selected_code)
-    metrics_list = get_financial_metrics(selected_code)
-    price_hist = get_price_history(selected_code)
+    quote, metrics_list, price_hist = _load_main_data(selected_code)
 
 if quote is None:
     st.error(f"未找到股票 **{selected_code}** 的数据，请检查代码是否正确。")

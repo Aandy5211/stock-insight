@@ -23,10 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_call(func, *args, retries=MAX_RETRIES, **kwargs):
-    """带重试的安全调用，自动限速"""
+    """带重试的安全调用，仅在重试时限速"""
     for attempt in range(retries):
         try:
-            time.sleep(REQUEST_INTERVAL)
             result = func(*args, **kwargs)
             if isinstance(result, pd.DataFrame) and result.empty:
                 logger.warning(f"{func.__name__} 返回空数据")
@@ -37,7 +36,7 @@ def _safe_call(func, *args, retries=MAX_RETRIES, **kwargs):
             if attempt == retries - 1:
                 logger.error(f"{func.__name__} 最终失败: {e}")
                 return None
-            time.sleep(1)
+            time.sleep(REQUEST_INTERVAL)
     return None
 
 
