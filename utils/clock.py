@@ -95,6 +95,25 @@ def show_world_clock() -> None:
 
     tick();
     setInterval(tick, 1000);
+
+    /* ── 隐藏 Streamlit Cloud Status / Manage App 浮层 ── */
+    function hideStatusWidget() {
+        var selectors = [
+            'iframe[title="Streamlit Cloud Status"]',
+            '[data-testid="stStatusWidget"]',
+            'button[title="Manage app"]',
+            'button[aria-label="Manage app"]',
+        ];
+        selectors.forEach(function(sel) {
+            P.querySelectorAll(sel).forEach(function(el) {
+                el.style.setProperty('display', 'none', 'important');
+            });
+        });
+    }
+    hideStatusWidget();
+    /* 监听 DOM 变化，防止按钮动态插入后重新出现 */
+    var observer = new MutationObserver(hideStatusWidget);
+    observer.observe(P.body, { childList: true, subtree: true });
 })();
 </script>
 </body>
