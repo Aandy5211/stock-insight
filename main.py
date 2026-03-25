@@ -346,7 +346,7 @@ if metrics_list:
             st.plotly_chart(fig2, use_container_width=True)
 
         with tab3:
-            st.dataframe(df_metrics, hide_index=True, use_container_width=True)
+            st.dataframe(df_metrics, hide_index=True, use_container_width=True, height=350)
 
 else:
     st.info("暂无财务数据，可能该股票数据源暂不支持，请尝试其他股票。")

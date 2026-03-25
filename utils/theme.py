@@ -184,7 +184,6 @@ hr { border-color: #1a1a2e !important; }
 [data-testid="stDataFrameResizable"] {
     border: 1px solid #2A2A3D !important;
     border-radius: 8px !important;
-    overflow: hidden;
 }
 .dvn-scroller { background: #161823 !important; }
 
