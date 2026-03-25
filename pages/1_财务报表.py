@@ -55,7 +55,7 @@ with st.sidebar:
         placeholder="如：000001 / 600519",
         key="fs_code_input",
     )
-    if st.button("查询", use_container_width=True, type="primary"):
+    if st.button("查询", width="stretch", type="primary"):
         if code_input.strip():
             st.session_state["selected_code"] = code_input.strip()
             st.rerun()
@@ -64,7 +64,7 @@ with st.sidebar:
     quick = {"贵州茅台 600519": "600519", "平安银行 000001": "000001",
              "宁德时代 300750": "300750", "招商银行 600036": "600036"}
     for label, qcode in quick.items():
-        if st.button(label, use_container_width=True, key=f"q_{qcode}"):
+        if st.button(label, width="stretch", key=f"q_{qcode}"):
             st.session_state["selected_code"] = qcode
             st.rerun()
 
@@ -183,7 +183,7 @@ with tab_income:
                 xaxis=dict(tickangle=-30, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                 yaxis=dict(gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             ))
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         with col_margin:
             st.markdown(f'<div style="color:{TK_TEXT};font-weight:600;margin-bottom:6px;">毛利率 & 净利率趋势(%)</div>', unsafe_allow_html=True)
@@ -217,14 +217,14 @@ with tab_income:
                 xaxis=dict(tickangle=-30, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                 yaxis=dict(gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             ))
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         st.markdown(f'<div style="color:{TK_MUTED};font-size:0.85em;margin-bottom:6px;">明细数据（亿元，% 为同比增长率）</div>', unsafe_allow_html=True)
         yoy_cols = [c for c in df_inc.columns if "同比" in c]
         st.dataframe(
             df_inc.style.map(highlight_change, subset=yoy_cols),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -277,7 +277,7 @@ with tab_balance:
                 xaxis=dict(tickangle=-30, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                 yaxis=dict(gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             ))
-            st.plotly_chart(fig3, use_container_width=True)
+            st.plotly_chart(fig3, width="stretch")
 
         with col_r:
             st.markdown(f'<div style="color:{TK_TEXT};font-weight:600;margin-bottom:6px;">资产负债率趋势(%)</div>', unsafe_allow_html=True)
@@ -304,14 +304,14 @@ with tab_balance:
                 xaxis=dict(tickangle=-30, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                 yaxis=dict(range=[0, 110], gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             ))
-            st.plotly_chart(fig4, use_container_width=True)
+            st.plotly_chart(fig4, width="stretch")
 
         st.markdown(f'<div style="color:{TK_MUTED};font-size:0.85em;margin-bottom:6px;">明细数据（亿元）</div>', unsafe_allow_html=True)
         yoy_cols = [c for c in df_bs.columns if "同比" in c]
         st.dataframe(
             df_bs.style.map(highlight_change, subset=yoy_cols) if yoy_cols else df_bs,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -375,14 +375,14 @@ with tab_cash:
             xaxis=dict(tickangle=-30, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             yaxis=dict(gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         ))
-        st.plotly_chart(fig5, use_container_width=True)
+        st.plotly_chart(fig5, width="stretch")
 
         st.markdown(f'<div style="color:{TK_MUTED};font-size:0.85em;margin-bottom:6px;">明细数据（亿元）</div>', unsafe_allow_html=True)
         yoy_cols = [c for c in df_cf.columns if "同比" in c]
         st.dataframe(
             df_cf.style.map(highlight_change, subset=yoy_cols) if yoy_cols else df_cf,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
 

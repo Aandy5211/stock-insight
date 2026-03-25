@@ -40,7 +40,7 @@ with st.sidebar:
         value=st.session_state.get("selected_code", ""),
         placeholder="如：000001 / 600519",
     )
-    if st.button("查询", use_container_width=True, type="primary"):
+    if st.button("查询", width="stretch", type="primary"):
         if code_input.strip():
             st.session_state["selected_code"] = code_input.strip()
             st.rerun()
@@ -49,7 +49,7 @@ with st.sidebar:
     quick = {"贵州茅台 600519": "600519", "平安银行 000001": "000001",
              "宁德时代 300750": "300750", "招商银行 600036": "600036"}
     for label, qcode in quick.items():
-        if st.button(label, use_container_width=True, key=f"q_{qcode}"):
+        if st.button(label, width="stretch", key=f"q_{qcode}"):
             st.session_state["selected_code"] = qcode
             st.rerun()
     st.divider()
@@ -156,7 +156,7 @@ with tab_stock:
             textfont=dict(color=TK_TEXT),
         ))
         fig_pie.update_layout(**dark_layout(height=260, showlegend=False))
-        st.plotly_chart(fig_pie, use_container_width=True)
+        st.plotly_chart(fig_pie, width="stretch")
 
     with col_score:
         st.markdown(f'<div style="color:{TK_TEXT};font-weight:600;margin-bottom:6px;">情感分数分布</div>', unsafe_allow_html=True)
@@ -179,7 +179,7 @@ with tab_stock:
             xaxis=dict(title="情感分数", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             yaxis=dict(title="条数", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         ))
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_hist, width="stretch")
 
     with col_kw:
         st.markdown(f'<div style="color:{TK_TEXT};font-weight:600;margin-bottom:6px;">高频关键词 Top 15</div>', unsafe_allow_html=True)
@@ -201,7 +201,7 @@ with tab_stock:
                 yaxis=dict(autorange="reversed", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                 xaxis=dict(title="TF-IDF 权重", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             ))
-            st.plotly_chart(fig_kw, use_container_width=True)
+            st.plotly_chart(fig_kw, width="stretch")
         else:
             st.info("关键词提取失败")
 
@@ -237,7 +237,7 @@ with tab_stock:
             yaxis=dict(range=[0, 1], title="情感分数", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             xaxis=dict(title="发布时间", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         ))
-        st.plotly_chart(fig_tl, use_container_width=True)
+        st.plotly_chart(fig_tl, width="stretch")
         st.divider()
 
     # ── 新闻列表 ────────────────────────────────────────────────────────────
@@ -293,7 +293,7 @@ with tab_stock:
         show_cols = [c for c in [title_col, time_col, col_map["source"],
                                  "情感标签", "情感分数", "置信度", "关键词"]
                      if c and c in display_df.columns]
-        st.dataframe(display_df[show_cols], hide_index=True, use_container_width=True)
+        st.dataframe(display_df[show_cols], hide_index=True, width="stretch")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -345,7 +345,7 @@ with tab_market:
                     yaxis=dict(autorange="reversed", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                     xaxis=dict(title="热点关键词", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
                 ))
-                st.plotly_chart(fig_kw_m, use_container_width=True)
+                st.plotly_chart(fig_kw_m, width="stretch")
 
             for _, row in df_market.iterrows():
                 label    = row.get("情感标签", "中性")

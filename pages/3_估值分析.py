@@ -53,7 +53,7 @@ with st.sidebar:
         value=st.session_state.get("selected_code", ""),
         placeholder="如：000001 / 600519",
     )
-    if st.button("查询", use_container_width=True, type="primary"):
+    if st.button("查询", width="stretch", type="primary"):
         if code_input.strip():
             st.session_state["selected_code"] = code_input.strip()
             st.rerun()
@@ -62,7 +62,7 @@ with st.sidebar:
     quick = {"贵州茅台 600519": "600519", "平安银行 000001": "000001",
              "宁德时代 300750": "300750", "招商银行 600036": "600036"}
     for label, qcode in quick.items():
-        if st.button(label, use_container_width=True, key=f"q_{qcode}"):
+        if st.button(label, width="stretch", key=f"q_{qcode}"):
             st.session_state["selected_code"] = qcode
             st.rerun()
     st.divider()
@@ -255,7 +255,7 @@ def _build_valuation_chart(hist_df, info, current_val, label):
         xaxis=dict(title="日期", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         yaxis=dict(title=label, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
     ))
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1: st.metric("当前值",   f"{info.get('current', '—'):.2f}")
@@ -323,7 +323,7 @@ with col_peg:
         xaxis=dict(gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         showlegend=False,
     ))
-    st.plotly_chart(fig_peg, use_container_width=True)
+    st.plotly_chart(fig_peg, width="stretch")
 
 
 with col_roe:
@@ -369,7 +369,7 @@ with col_roe:
             xaxis=dict(tickangle=-20, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             yaxis=dict(title="ROE(%)", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         ))
-        st.plotly_chart(fig_roe, use_container_width=True)
+        st.plotly_chart(fig_roe, width="stretch")
     else:
         st.info("ROE 历史数据不足")
 
@@ -418,7 +418,7 @@ if flow_df is not None and not flow_df.empty:
             xaxis=dict(tickangle=-30, gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
             yaxis=dict(title="亿元", gridcolor=TK_BORDER, color=TK_MUTED, linecolor=TK_BORDER),
         ))
-        st.plotly_chart(fig_flow, use_container_width=True)
+        st.plotly_chart(fig_flow, width="stretch")
 else:
     st.info("资金流向数据暂不可用")
 
@@ -462,10 +462,10 @@ if analyst_info and forecast is not None:
             ),
         ))
         fig_r.update_layout(**dark_layout(height=280))
-        st.plotly_chart(fig_r, use_container_width=True)
+        st.plotly_chart(fig_r, width="stretch")
 
     with st.expander("查看完整分析师预测数据"):
-        st.dataframe(forecast, hide_index=True, use_container_width=True)
+        st.dataframe(forecast, hide_index=True, width="stretch")
 else:
     st.info("机构评级数据暂不可用")
 
@@ -476,7 +476,7 @@ st.divider()
 st.subheader("📥 导出研究报告")
 st.caption("将当前股票的行情、财务、估值、新闻数据打包导出为 Excel 文件")
 
-if st.button("生成 Excel 报告", type="primary", use_container_width=False):
+if st.button("生成 Excel 报告", type="primary", width="content"):
     with st.spinner("正在生成报告，请稍候..."):
         quote_items = [
             ("股票名称", stock_name),
@@ -536,7 +536,7 @@ if st.button("生成 Excel 报告", type="primary", use_container_width=False):
         data=excel_bytes,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width="stretch",
     )
     st.success("报告生成完毕，点击上方按钮下载。")
 

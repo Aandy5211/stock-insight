@@ -64,7 +64,7 @@ with st.sidebar:
         help="支持 A 股代码，可带市场前缀（sh/sz）"
     )
 
-    search_btn = st.button("搜索", use_container_width=True, type="primary")
+    search_btn = st.button("搜索", width="stretch", type="primary")
 
     st.divider()
     st.caption("**常用股票**")
@@ -76,7 +76,7 @@ with st.sidebar:
         "招商银行 600036": "600036",
     }
     for label, code in quick_stocks.items():
-        if st.button(label, use_container_width=True, key=f"quick_{code}"):
+        if st.button(label, width="stretch", key=f"quick_{code}"):
             st.session_state["selected_code"] = code
 
     st.divider()
@@ -102,7 +102,7 @@ if search_btn and stock_input.strip():
                 "最新价": "最新价", "涨跌幅": "涨跌幅(%)", "总市值": "总市值(元)"
             }),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -262,7 +262,7 @@ if price_hist is not None and not price_hist.empty:
             height=420,
             xaxis_rangeslider_visible=False,
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
 
 # ── 财务指标 ──────────────────────────────────────────────────────────────────
@@ -347,7 +347,7 @@ if metrics_list:
                         marker=dict(size=6),
                     ))
             fig1.update_layout(**dark_layout(height=350))
-            st.plotly_chart(fig1, use_container_width=True)
+            st.plotly_chart(fig1, width="stretch")
 
         with tab2:
             fig2 = go.Figure()
@@ -362,7 +362,7 @@ if metrics_list:
                         ],
                     ))
             fig2.update_layout(**dark_layout(height=350, barmode="group"))
-            st.plotly_chart(fig2, use_container_width=True)
+            st.plotly_chart(fig2, width="stretch")
 
         with tab3:
             # 渲染为 HTML 表格，避免 canvas 渲染颜色失效
