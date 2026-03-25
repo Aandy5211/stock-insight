@@ -346,7 +346,37 @@ if metrics_list:
             st.plotly_chart(fig2, use_container_width=True)
 
         with tab3:
-            st.dataframe(df_metrics, hide_index=True, use_container_width=True, height=350)
+            # 渲染为 HTML 表格，避免 canvas 渲染颜色失效
+            rows = "".join(
+                "<tr>" + "".join(f"<td>{v}</td>" for v in row) + "</tr>"
+                for row in df_metrics.itertuples(index=False)
+            )
+            headers = "".join(f"<th>{c}</th>" for c in df_metrics.columns)
+            st.markdown(
+                f"""
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+                  <thead>
+                    <tr style="background:{TK_CARD};border-bottom:2px solid {TK_BORDER};">
+                      {headers}
+                    </tr>
+                  </thead>
+                  <tbody>{rows}</tbody>
+                </table>
+                </div>
+                <style>
+                  table td, table th {{
+                    padding: 8px 12px;
+                    border-bottom: 1px solid {TK_BORDER};
+                    color: {TK_TEXT} !important;
+                    text-align: right;
+                  }}
+                  table th {{ color: {TK_MUTED} !important; text-align: center; }}
+                  table tr:hover td {{ background: {TK_CARD}; }}
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
 
 else:
     st.info("暂无财务数据，可能该股票数据源暂不支持，请尝试其他股票。")
