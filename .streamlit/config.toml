@@ -2,11 +2,6 @@
 headless = true
 enableCORS = false
 enableXsrfProtection = false
-maxUploadSize = 10
-
-[runner]
-fastReruns = true
-magicEnabled = false
 
 [theme]
 base = "dark"
