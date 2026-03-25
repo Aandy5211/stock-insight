@@ -227,9 +227,18 @@ footer { visibility: hidden !important; height: 0 !important; }
 
 /* ── 隐藏右下角 Manage app 按钮 ── */
 [data-testid="stStatusWidget"],
+[data-testid="stStatusWidget"] *,
 [data-testid="manage-app-button"],
-.st-emotion-cache-fis6aj,
-iframe[title="streamlit_analytics"] { display: none !important; }
+[data-testid="stAppViewBlockContainer"] ~ div,
+.stDeployButton,
+.stAppDeployButton,
+button[title="Manage app"],
+button[aria-label="Manage app"],
+button[title="Open in Streamlit"],
+iframe[title="streamlit_analytics"],
+/* 兜底：固定在右下角的所有浮层 */
+div[style*="position: fixed"][style*="bottom"][style*="right"],
+div[style*="position:fixed"][style*="bottom"][style*="right"] { display: none !important; }
 </style>
 """
 
