@@ -225,20 +225,16 @@ hr { border-color: #1a1a2e !important; }
 #MainMenu,
 footer { visibility: hidden !important; height: 0 !important; }
 
-/* ── 隐藏右下角 Manage app 按钮 ── */
+/* ── 隐藏右下角 Manage app / Cloud Status 按钮 ── */
 [data-testid="stStatusWidget"],
 [data-testid="stStatusWidget"] *,
 [data-testid="manage-app-button"],
-[data-testid="stAppViewBlockContainer"] ~ div,
 .stDeployButton,
 .stAppDeployButton,
 button[title="Manage app"],
 button[aria-label="Manage app"],
-button[title="Open in Streamlit"],
-iframe[title="streamlit_analytics"],
-/* 兜底：固定在右下角的所有浮层 */
-div[style*="position: fixed"][style*="bottom"][style*="right"],
-div[style*="position:fixed"][style*="bottom"][style*="right"] { display: none !important; }
+iframe[title="Streamlit Cloud Status"],
+iframe[title="streamlit_analytics"] { display: none !important; }
 </style>
 """
 
