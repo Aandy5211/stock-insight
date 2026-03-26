@@ -1,4 +1,4 @@
-"""新闻 NLP 分析：情感分析 + 关键词提取"""
+"""新闻 NLP 分析：情感分析 + 关键词提取（支持中英文）"""
 import re
 import logging
 import pandas as pd
@@ -11,6 +11,58 @@ logger = logging.getLogger(__name__)
 # 情感分数阈值
 _POS_THRESHOLD = 0.62
 _NEG_THRESHOLD = 0.38
+
+# ── 英文情感词表（金融场景）──────────────────────────────────────────────────
+_EN_POS = {
+    "surge", "rise", "gain", "profit", "growth", "strong", "beat", "record",
+    "high", "upgrade", "buy", "bullish", "rally", "recovery", "boost",
+    "outperform", "exceed", "positive", "optimistic", "expand", "increase",
+}
+_EN_NEG = {
+    "fall", "drop", "loss", "decline", "weak", "miss", "low", "downgrade",
+    "sell", "bearish", "crash", "risk", "concern", "shrink", "decrease",
+    "underperform", "negative", "pessimistic", "cut", "reduce", "warning",
+}
+_EN_STOP = {
+    "the", "a", "an", "is", "it", "in", "on", "at", "to", "for", "of",
+    "and", "or", "but", "with", "as", "by", "from", "that", "this", "be",
+    "was", "are", "been", "have", "has", "had", "will", "would", "could",
+    "should", "may", "might", "do", "does", "did", "its", "their", "our",
+    "his", "her", "not", "also", "after", "before", "than", "more", "some",
+}
+
+
+def _is_english(text: str) -> bool:
+    """判断文本是否主要为英文"""
+    alpha = [c for c in text if c.isalpha()]
+    if not alpha:
+        return False
+    ascii_alpha = sum(1 for c in alpha if c.isascii())
+    return ascii_alpha / len(alpha) > 0.7
+
+
+def _english_sentiment(text: str) -> float:
+    """基于关键词的英文情感评分，返回 0~1"""
+    words = set(re.findall(r"\b[a-z]{3,}\b", text.lower()))
+    pos = len(words & _EN_POS)
+    neg = len(words & _EN_NEG)
+    total = pos + neg
+    if total == 0:
+        return 0.5
+    return round(0.5 + 0.45 * (pos - neg) / total, 4)
+
+
+def _english_keywords(text: str, topk: int = 10) -> list[tuple[str, float]]:
+    """英文关键词提取（词频）"""
+    words = re.findall(r"\b[a-zA-Z]{4,}\b", text.lower())
+    freq: dict[str, int] = {}
+    for w in words:
+        if w not in _EN_STOP:
+            freq[w] = freq.get(w, 0) + 1
+    total = len(words) or 1
+    sorted_w = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    return [(w, round(c / total, 4)) for w, c in sorted_w[:topk]]
+
 
 # 停用词（金融文本常见无意义词）
 _STOPWORDS = {
@@ -49,7 +101,10 @@ def analyze_sentiment(text: str) -> dict:
         return {"score": 0.5, "label": "neutral", "label_cn": "中性", "confidence": 0.0}
 
     try:
-        score = SnowNLP(text).sentiments
+        if _is_english(text):
+            score = _english_sentiment(text)
+        else:
+            score = SnowNLP(text).sentiments
     except Exception as e:
         logger.warning(f"情感分析失败: {e}")
         return {"score": 0.5, "label": "neutral", "label_cn": "中性", "confidence": 0.0}
@@ -78,6 +133,8 @@ def extract_keywords(text: str, topk: int = 10) -> list[tuple[str, float]]:
     text = _clean_text(text)
     if not text:
         return []
+    if _is_english(text):
+        return _english_keywords(text, topk)
     try:
         words = jieba.analyse.extract_tags(text, topK=topk * 2, withWeight=True)
         result = [

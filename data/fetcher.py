@@ -1,420 +1,439 @@
-"""AKShare 数据采集统一接口"""
-import time
+"""Yahoo Finance 数据采集统一接口（yfinance）"""
 import logging
-import requests
+import numpy as np
 import pandas as pd
+import yfinance as yf
 
-# ── 全局禁用系统代理 ──────────────────────────────────────────────────────────
-# Windows 系统代理（Clash/V2Ray 等）会拦截东方财富等国内接口，导致连接失败。
-# 通过 patch requests.Session 的 trust_env，让所有 HTTP 请求绕过系统代理直连。
-_orig_session_init = requests.Session.__init__
-def _no_proxy_session_init(self, *args, **kwargs):
-    _orig_session_init(self, *args, **kwargs)
-    self.trust_env = False
-requests.Session.__init__ = _no_proxy_session_init
-# ──────────────────────────────────────────────────────────────────────────────
-
-import akshare as ak
 from data.cache import cached
-from data.models import QuoteData, FinancialMetrics, StockInfo
-from config import REQUEST_INTERVAL, MAX_RETRIES
+from data.models import QuoteData, FinancialMetrics
+from config import MAX_RETRIES
 
 logger = logging.getLogger(__name__)
 
 
-def _safe_call(func, *args, retries=MAX_RETRIES, **kwargs):
-    """带重试的安全调用，仅在重试时限速"""
-    for attempt in range(retries):
-        try:
-            result = func(*args, **kwargs)
-            if isinstance(result, pd.DataFrame) and result.empty:
-                logger.warning(f"{func.__name__} 返回空数据")
-                return None
-            return result
-        except Exception as e:
-            logger.warning(f"{func.__name__} 第{attempt+1}次失败: {e}")
-            if attempt == retries - 1:
-                logger.error(f"{func.__name__} 最终失败: {e}")
-                return None
-            time.sleep(REQUEST_INTERVAL)
-    return None
-
-
 def normalize_code(code: str) -> tuple[str, str]:
     """
-    标准化股票代码，返回 (纯代码, 市场前缀)
-    支持输入格式: "000001", "sh000001", "sz000001", "000001.SZ"
+    标准化股票代码，返回 (Yahoo Finance 格式, 纯代码)
+    支持: "000001" / "sh000001" / "600519.SH" / "SZ000001"
+    Yahoo Finance 上交所用 .SS，深交所用 .SZ
     """
     code = code.strip().upper()
-    if code.endswith(".SH") or code.endswith(".SZ") or code.endswith(".BJ"):
-        market = code[-2:].lower()
+
+    # 已是 Yahoo Finance 格式
+    if code.endswith(".SS") or code.endswith(".SZ"):
+        pure = code.rsplit(".", 1)[0]
+        return code, pure
+
+    # .SH → .SS
+    if code.endswith(".SH"):
         pure = code[:-3]
-        return pure, market
-    for prefix in ("SH", "SZ", "BJ"):
+        return f"{pure}.SS", pure
+
+    # .BJ 北交所（暂时映射到 .SS）
+    if code.endswith(".BJ"):
+        pure = code[:-3]
+        return f"{pure}.SS", pure
+
+    # 去掉 sh/sz/bj 前缀
+    for prefix, suffix in [("SH", "SS"), ("SS", "SS"), ("SZ", "SZ"), ("BJ", "SS")]:
         if code.startswith(prefix):
-            return code[2:], prefix.lower()
+            pure = code[len(prefix):]
+            return f"{pure}.{suffix}", pure
+
     # 根据代码规则推断市场
     pure = code
     if pure.startswith("6"):
-        return pure, "sh"
+        return f"{pure}.SS", pure   # 上交所
     elif pure.startswith(("0", "3")):
-        return pure, "sz"
+        return f"{pure}.SZ", pure   # 深交所
     elif pure.startswith(("4", "8")):
-        return pure, "bj"
-    return pure, "sh"
+        return f"{pure}.SS", pure   # 北交所（近似）
+    return f"{pure}.SS", pure
 
+
+# ── 行情 ──────────────────────────────────────────────────────────────────────
 
 @cached(ttl_key="quote")
 def get_quote(code: str) -> QuoteData | None:
-    """获取实时行情（雪球接口，不依赖 push2.eastmoney.com）"""
-    pure, market = normalize_code(code)
-    xq_symbol = f"{market.upper()}{pure}"
-    df = _safe_call(ak.stock_individual_spot_xq, symbol=xq_symbol)
-    if df is None:
-        return None
-
+    """获取实时行情（Yahoo Finance）"""
+    yf_code, pure = normalize_code(code)
     try:
-        info = dict(zip(df["item"], df["value"]))
-    except Exception:
+        ticker = yf.Ticker(yf_code)
+        info = ticker.info
+        if not info:
+            return None
+
+        def _f(key, default=0.0):
+            try:
+                v = info.get(key)
+                return float(v) if v is not None else default
+            except Exception:
+                return default
+
+        price = _f("currentPrice") or _f("regularMarketPrice")
+        if price == 0:
+            return None
+
+        prev_close = _f("regularMarketPreviousClose") or _f("previousClose") or price
+        change     = price - prev_close
+        change_pct = (change / prev_close * 100) if prev_close else 0.0
+        name       = info.get("shortName") or info.get("longName") or yf_code
+
+        return QuoteData(
+            code=pure,
+            name=name,
+            price=price,
+            change=round(change, 3),
+            change_pct=round(change_pct, 2),
+            volume=_f("regularMarketVolume") / 100,          # 股 → 手
+            turnover=_f("regularMarketVolume") * price,       # 估算成交额
+            pe_ttm=_f("trailingPE"),
+            pb=_f("priceToBook"),
+            market_cap=_f("marketCap") / 1e8,                # 元 → 亿
+            circ_cap=_f("floatShares") * price / 1e8,
+            high_52w=_f("fiftyTwoWeekHigh"),
+            low_52w=_f("fiftyTwoWeekLow"),
+        )
+    except Exception as e:
+        logger.error(f"get_quote 失败 {yf_code}: {e}")
         return None
 
-    def _f(key, default=0.0):
-        try:
-            return float(info.get(key, default))
-        except Exception:
-            return default
 
-    return QuoteData(
-        code=pure,
-        name=str(info.get("名称", "")),
-        price=_f("现价"),
-        change=_f("涨跌"),
-        change_pct=_f("涨幅"),
-        volume=_f("成交量") / 100,   # 雪球返回股数，除以100转换为手
-        turnover=_f("成交额"),
-        pe_ttm=_f("市盈率(TTM)"),
-        pb=_f("市净率"),
-        market_cap=_f("资产净值/总市值") / 1e8,
-        circ_cap=_f("流通值") / 1e8,
-    )
-
+# ── 财务指标 ───────────────────────────────────────────────────────────────────
 
 @cached(ttl_key="financial")
 def get_financial_metrics(code: str) -> list[FinancialMetrics]:
-    """获取最近8期关键财务指标"""
-    pure, _ = normalize_code(code)
-
-    df = _safe_call(ak.stock_financial_abstract_ths, symbol=pure, indicator="按报告期")
-    if df is None:
+    """获取最近 8 期季报关键财务指标"""
+    yf_code, pure = normalize_code(code)
+    try:
+        ticker = yf.Ticker(yf_code)
+        q_fin = ticker.quarterly_financials      # rows=指标, cols=日期
+        q_bs  = ticker.quarterly_balance_sheet
+    except Exception as e:
+        logger.error(f"get_financial_metrics 失败: {e}")
         return []
 
-    # 取最新8期（数据按日期升序，tail 取尾部）
-    recent = df.tail(8).iloc[::-1].reset_index(drop=True)
+    if q_fin is None or q_fin.empty:
+        return []
 
-    # 列名别名映射（兼容不同版本 THS 返回字段）
-    cols = set(recent.columns)
-    _COL = {
-        "roe":         next((c for c in ["净资产收益率", "ROE", "Roe", "资产净回报率"] if c in cols), None),
-        "gross":       next((c for c in ["毛利率", "销售毛利率", "营业利润率"] if c in cols), None),
-        "net":         next((c for c in ["净利率", "销售净利率", "净利润率"] if c in cols), None),
-        "rev_yoy":     next((c for c in ["营业总收入同比增长率", "营业收入同比增长率"] if c in cols), None),
-        "profit_yoy":  next((c for c in ["归母净利润同比增长率", "扣非净利润同比增长率", "净利润同比增长率"] if c in cols), None),
-        "debt":        next((c for c in ["资产负债率"] if c in cols), None),
-        "equity_mul":  next((c for c in ["权益乘数"] if c in cols), None),
-    }
+    def _row(df, *keys):
+        """从 DataFrame 中找第一个匹配的行，转为 Series"""
+        if df is None or df.empty:
+            return pd.Series(dtype=float)
+        for key in keys:
+            if key in df.index:
+                return df.loc[key]
+        return pd.Series(dtype=float)
 
-    def _parse(val, default=0.0) -> float:
-        """解析可能带%、元、逗号或 False 的数值"""
-        if val is None or val is False or val is True:
-            return default
-        s = str(val).strip()
-        if s in ("False", "True", "None", "—", "-", ""):
-            return default
-        s = s.rstrip("%").replace(",", "").replace("元", "").strip()
+    def _val(series, col, default=0.0):
         try:
-            return float(s)
+            v = series.get(col) if hasattr(series, "get") else series[col]
+            f = float(v)
+            return default if np.isnan(f) else f
         except Exception:
             return default
 
-    def _f(row, key, default=0.0) -> float:
-        col = _COL.get(key)
-        return _parse(row.get(col), default) if col else default
+    rev_s    = _row(q_fin, "Total Revenue")
+    gp_s     = _row(q_fin, "Gross Profit")
+    ni_s     = _row(q_fin, "Net Income", "Net Income Common Stockholders")
+    assets_s = _row(q_bs,  "Total Assets")
+    equity_s = _row(q_bs,  "Stockholders Equity", "Common Stock Equity",
+                    "Total Equity Gross Minority Interest")
+    debt_s   = _row(q_bs,  "Total Debt")
 
+    cols = list(q_fin.columns[:8])
     results = []
-    for _, row in recent.iterrows():
-        roe = _f(row, "roe")
+    for i, col in enumerate(cols):
+        rev    = _val(rev_s,    col)
+        gp     = _val(gp_s,     col)
+        ni     = _val(ni_s,     col)
+        assets = _val(assets_s, col)
+        equity = _val(equity_s, col)
+        debt   = _val(debt_s,   col)
+
+        gross_margin = gp / rev    * 100 if rev    > 0 else 0.0
+        net_margin   = ni / rev    * 100 if rev    > 0 else 0.0
+        roe          = ni / equity * 100 if equity > 0 else 0.0
+        debt_ratio   = debt / assets * 100 if assets > 0 else 0.0
+
+        # 同比：对比 4 期前（同季度上年）
+        rev_yoy = profit_yoy = 0.0
+        if i + 4 < len(cols):
+            prev = cols[i + 4]
+            prev_rev = _val(rev_s, prev)
+            prev_ni  = _val(ni_s,  prev)
+            if prev_rev > 0:
+                rev_yoy = (rev - prev_rev) / abs(prev_rev) * 100
+            if prev_ni != 0:
+                profit_yoy = (ni - prev_ni) / abs(prev_ni) * 100
 
         results.append(FinancialMetrics(
             code=pure,
-            report_date=str(row.get("报告期", "")),
-            roe=roe,
-            gross_margin=_f(row, "gross"),
-            net_margin=_f(row, "net"),
-            revenue_yoy=_f(row, "rev_yoy"),
-            profit_yoy=_f(row, "profit_yoy"),
-            debt_ratio=_f(row, "debt"),
+            report_date=str(col)[:10],
+            roe=round(roe, 2),
+            gross_margin=round(gross_margin, 2),
+            net_margin=round(net_margin, 2),
+            revenue_yoy=round(rev_yoy, 2),
+            profit_yoy=round(profit_yoy, 2),
+            debt_ratio=round(debt_ratio, 2),
         ))
+
     return results
 
 
-@cached(ttl_key="financial")
-def get_price_history(code: str, period: str = "daily", count: int = 250) -> pd.DataFrame | None:
-    """获取历史价格（近 count 个交易日，新浪财经接口）"""
-    pure, market = normalize_code(code)
-    sina_symbol = f"{market}{pure}"
-    df = _safe_call(ak.stock_zh_a_daily, symbol=sina_symbol, adjust="qfq")
-    if df is None:
-        return None
-    df = df.tail(count).copy()
-    # 统一为 K 线图所需的中文列名
-    df = df.rename(columns={
-        "date":   "日期",
-        "open":   "开盘",
-        "high":   "最高",
-        "low":    "最低",
-        "close":  "收盘",
-        "volume": "成交量",
-        "amount": "成交额",
-    })
-    return df
+# ── 价格历史 ───────────────────────────────────────────────────────────────────
 
+@cached(ttl_key="financial")
+def get_price_history(code: str, count: int = 250) -> pd.DataFrame | None:
+    """获取历史价格（近 count 个交易日）"""
+    yf_code, _ = normalize_code(code)
+    try:
+        ticker = yf.Ticker(yf_code)
+        df = ticker.history(period="2y")
+        if df is None or df.empty:
+            return None
+        df = df.tail(count).copy().reset_index()
+        df = df.rename(columns={
+            "Date":   "日期",
+            "Open":   "开盘",
+            "High":   "最高",
+            "Low":    "最低",
+            "Close":  "收盘",
+            "Volume": "成交量",
+        })
+        if "日期" in df.columns:
+            df["日期"] = pd.to_datetime(df["日期"]).dt.tz_localize(None)
+        return df
+    except Exception as e:
+        logger.error(f"get_price_history 失败: {e}")
+        return None
+
+
+# ── 搜索 ──────────────────────────────────────────────────────────────────────
 
 @cached(ttl_key="financial")
 def search_stock(keyword: str) -> pd.DataFrame | None:
-    """按关键词搜索股票（使用股票代码/名称列表）"""
-    df = _safe_call(ak.stock_info_a_code_name)
-    if df is None:
+    """按关键词搜索股票（Yahoo Finance Search）"""
+    try:
+        results = yf.Search(keyword, max_results=20).quotes
+        if not results:
+            return None
+        rows = []
+        for r in results:
+            sym = r.get("symbol", "")
+            if not (sym.endswith(".SS") or sym.endswith(".SZ")):
+                continue
+            pure_code = sym.rsplit(".", 1)[0]
+            rows.append({
+                "代码": pure_code,
+                "名称": r.get("shortname") or r.get("longname") or sym,
+            })
+        return pd.DataFrame(rows) if rows else None
+    except Exception as e:
+        logger.error(f"search_stock 失败: {e}")
         return None
-    mask = (
-        df["code"].str.contains(keyword, na=False) |
-        df["name"].str.contains(keyword, na=False)
-    )
-    result = df[mask].rename(columns={"code": "代码", "name": "名称"}).head(20)
-    return result if not result.empty else None
 
 
-@cached(ttl_key="financial")
-def get_stock_list() -> pd.DataFrame | None:
-    """获取 A 股全量代码和名称"""
-    return _safe_call(ak.stock_info_a_code_name)
+# ── 财报三表（通用转换）───────────────────────────────────────────────────────
 
+def _yf_to_df(df_raw: pd.DataFrame, col_map: dict) -> pd.DataFrame | None:
+    """
+    将 yfinance 财报 DataFrame（行=英文指标, 列=日期）转换为
+    （行=日期, 列=AKShare 兼容列名），供 analysis/statements.py 解析
+    """
+    if df_raw is None or df_raw.empty:
+        return None
+    available = {k: v for k, v in col_map.items() if k in df_raw.index}
+    if not available:
+        return None
+    sub = df_raw.loc[list(available.keys())].T.copy()
+    sub.index.name = "REPORT_DATE"
+    sub = sub.reset_index()
+    sub = sub.rename(columns=available)
+    sub["REPORT_DATE"] = pd.to_datetime(sub["REPORT_DATE"]).dt.strftime("%Y-%m-%d")
+    sub = sub.sort_values("REPORT_DATE", ascending=False).reset_index(drop=True)
+    return sub
 
-# ── 财报三表 ──────────────────────────────────────────────────────────────────
 
 @cached(ttl_key="financial")
 def get_income_statement(code: str) -> pd.DataFrame | None:
-    """
-    利润表（按报告期，东方财富 emweb 接口）
-    需传入 SH/SZ 前缀格式，如 SZ000001
-    """
-    pure, market = normalize_code(code)
-    em_symbol = f"{market.upper()}{pure}"
-    df = _safe_call(ak.stock_profit_sheet_by_report_em, symbol=em_symbol)
-    if df is None:
+    yf_code, _ = normalize_code(code)
+    try:
+        df = yf.Ticker(yf_code).quarterly_financials
+        return _yf_to_df(df, {
+            "Total Revenue":                  "TOTAL_OPERATE_INCOME",
+            "Cost Of Revenue":                "OPERATE_COST",
+            "Total Operating Expenses":       "TOTAL_OPERATE_COST",
+            "Gross Profit":                   "GROSS_PROFIT",
+            "Operating Income":               "OPERATE_PROFIT",
+            "Net Income":                     "NETPROFIT",
+            "Net Income Common Stockholders": "PARENT_NETPROFIT",
+            "Basic EPS":                      "BASIC_EPS",
+        })
+    except Exception as e:
+        logger.error(f"get_income_statement 失败: {e}")
         return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df
 
 
 @cached(ttl_key="financial")
 def get_balance_sheet(code: str) -> pd.DataFrame | None:
-    """
-    资产负债表（按报告期，东方财富 emweb 接口）
-    需传入 SH/SZ 前缀格式，如 SZ000001
-    """
-    pure, market = normalize_code(code)
-    em_symbol = f"{market.upper()}{pure}"
-    df = _safe_call(ak.stock_balance_sheet_by_report_em, symbol=em_symbol)
-    if df is None:
+    yf_code, _ = normalize_code(code)
+    try:
+        df = yf.Ticker(yf_code).quarterly_balance_sheet
+        return _yf_to_df(df, {
+            "Cash And Cash Equivalents":              "MONETARYFUNDS",
+            "Accounts Receivable":                    "ACCOUNTS_RECE",
+            "Inventory":                              "INVENTORY",
+            "Total Assets":                           "TOTAL_ASSETS",
+            "Total Liabilities Net Minority Interest": "TOTAL_LIABILITIES",
+            "Stockholders Equity":                    "TOTAL_EQUITY",
+            "Common Stock Equity":                    "PARENT_EQUITY",
+        })
+    except Exception as e:
+        logger.error(f"get_balance_sheet 失败: {e}")
         return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df
 
 
 @cached(ttl_key="financial")
 def get_cash_flow(code: str) -> pd.DataFrame | None:
-    """
-    现金流量表（按报告期，东方财富）
-    主要字段：报告期、经营活动现金流、投资活动现金流、筹资活动现金流、自由现金流
-    """
-    pure, market = normalize_code(code)
-    em_symbol = f"{market.upper()}{pure}"
-    df = _safe_call(ak.stock_cash_flow_sheet_by_report_em, symbol=em_symbol)
-    if df is None:
+    yf_code, _ = normalize_code(code)
+    try:
+        df = yf.Ticker(yf_code).quarterly_cashflow
+        return _yf_to_df(df, {
+            "Operating Cash Flow":  "NETCASH_OPERATE",
+            "Investing Cash Flow":  "NETCASH_INVEST",
+            "Financing Cash Flow":  "NETCASH_FINANCE",
+            "Capital Expenditure":  "CAPITAL_EXPENDITURE",
+            "Free Cash Flow":       "FREE_CASHFLOW",
+        })
+    except Exception as e:
+        logger.error(f"get_cash_flow 失败: {e}")
         return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df
 
 
 # ── 新闻 ──────────────────────────────────────────────────────────────────────
 
-@cached(ttl_key="news")
-def get_stock_news(code: str, count: int = 50) -> pd.DataFrame | None:
-    """
-    获取个股新闻（东方财富）
-    返回列：关键词、新闻标题、内容、发布时间、文章来源、新闻链接
-    """
-    pure, _ = normalize_code(code)
-    df = _safe_call(ak.stock_news_em, symbol=pure)
-    if df is None:
+def _parse_yf_news(news_list: list, count: int) -> pd.DataFrame | None:
+    if not news_list:
         return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df.head(count)
+    rows = []
+    for item in news_list[:count]:
+        content = item.get("content", {})
+        if isinstance(content, dict):
+            title    = content.get("title", "")
+            pub_time = content.get("pubDate", "")
+            provider = content.get("provider", {})
+            source   = provider.get("displayName", "") if isinstance(provider, dict) else ""
+            canon    = content.get("canonicalUrl", {})
+            url      = canon.get("url", "") if isinstance(canon, dict) else ""
+            summary  = content.get("summary", "")
+        else:
+            title    = item.get("title", "")
+            pub_time = str(item.get("providerPublishTime", ""))
+            source   = item.get("publisher", "")
+            url      = item.get("link", "")
+            summary  = ""
+        if not title:
+            continue
+        rows.append({
+            "新闻标题": title,
+            "内容":    summary,
+            "发布时间": pub_time,
+            "文章来源": source,
+            "新闻链接": url,
+        })
+    return pd.DataFrame(rows) if rows else None
+
+
+@cached(ttl_key="news")
+def get_stock_news(code: str, count: int = 30) -> pd.DataFrame | None:
+    yf_code, _ = normalize_code(code)
+    try:
+        return _parse_yf_news(yf.Ticker(yf_code).news, count)
+    except Exception as e:
+        logger.error(f"get_stock_news 失败: {e}")
+        return None
 
 
 @cached(ttl_key="news")
 def get_market_news(count: int = 30) -> pd.DataFrame | None:
-    """
-    获取财经要闻（财新 stock_news_main_cx）
-    返回列：新闻标题、关键词、新闻链接
-    """
-    df = _safe_call(ak.stock_news_main_cx)
-    if df is None:
+    try:
+        # 用沪深 300 作为大盘新闻代理
+        return _parse_yf_news(yf.Ticker("000300.SS").news, count)
+    except Exception as e:
+        logger.error(f"get_market_news 失败: {e}")
         return None
-    df = df.copy()
-    # 统一为页面期望的列名
-    rename = {}
-    if "summary" in df.columns:
-        rename["summary"] = "新闻标题"
-    if "tag" in df.columns:
-        rename["tag"] = "关键词"
-    if "url" in df.columns:
-        rename["url"] = "新闻链接"
-    df = df.rename(columns=rename)
-    return df.head(count)
 
 
-# ── 估值 ──────────────────────────────────────────────────────────────────────
+# ── 估值数据 ───────────────────────────────────────────────────────────────────
 
 @cached(ttl_key="valuation")
 def get_pe_pb_history(code: str, indicator: str = "PE") -> pd.DataFrame | None:
     """
-    个股历史 PE/PB，由价格历史 + 财务数据（EPS/BPS）计算
-    indicator: "PE"（市盈率）/ "PB"（市净率）
-    返回列：date, value
+    历史 PE/PB（用历史收盘价 ÷ 最新 EPS/BPS 近似计算）
     """
-    pure, market = normalize_code(code)
+    yf_code, _ = normalize_code(code)
+    try:
+        ticker = yf.Ticker(yf_code)
+        info   = ticker.info
 
-    # 价格历史
-    sina_symbol = f"{market}{pure}"
-    price_df = _safe_call(ak.stock_zh_a_daily, symbol=sina_symbol, adjust="qfq")
-    if price_df is None or price_df.empty:
+        if indicator == "PE":
+            base = float(info.get("trailingEps") or 0)
+        else:
+            base = float(info.get("bookValue") or 0)
+
+        if base <= 0:
+            return None
+
+        hist = ticker.history(period="5y")[["Close"]].copy()
+        if hist.empty:
+            return None
+
+        hist = hist.reset_index()
+        hist["date"]  = pd.to_datetime(hist["Date"]).dt.tz_localize(None)
+        hist["value"] = (hist["Close"] / base).round(2)
+
+        max_val = 500.0 if indicator == "PE" else 50.0
+        hist = hist[(hist["value"] > 0) & (hist["value"] < max_val)]
+        return hist[["date", "value"]].reset_index(drop=True)
+    except Exception as e:
+        logger.error(f"get_pe_pb_history 失败: {e}")
         return None
-
-    # 财务数据
-    fin_df = _safe_call(ak.stock_financial_abstract_ths, symbol=pure, indicator="按报告期")
-    if fin_df is None or fin_df.empty:
-        return None
-
-    val_col = "基本每股收益" if indicator == "PE" else "每股净资产"
-    if val_col not in fin_df.columns:
-        return None
-
-    fin_df = fin_df.copy()
-    fin_df["报告期"] = pd.to_datetime(fin_df["报告期"], errors="coerce")
-    fin_df[val_col] = pd.to_numeric(fin_df[val_col], errors="coerce")
-    fin_df = fin_df.dropna(subset=["报告期", val_col])
-    fin_df = fin_df[fin_df[val_col] > 0].sort_values("报告期").reset_index(drop=True)
-
-    if fin_df.empty:
-        return None
-
-    # 价格整理
-    price_df = price_df.copy()
-    price_df["date"] = pd.to_datetime(price_df["date"], errors="coerce")
-    price_df = price_df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
-
-    fin_dates = fin_df["报告期"].values
-    fin_vals = fin_df[val_col].values
-
-    results = []
-    for _, row in price_df.iterrows():
-        d = row["date"]
-        close = row.get("close")
-        if close is None or pd.isna(close) or close <= 0:
-            continue
-        mask = fin_dates <= d
-        if not mask.any():
-            continue
-        latest_val = float(fin_vals[mask][-1])
-        if latest_val <= 0:
-            continue
-        ratio = round(float(close) / latest_val, 2)
-        max_ratio = 500.0 if indicator == "PE" else 50.0
-        if 0 < ratio < max_ratio:
-            results.append({"date": d, "value": ratio})
-
-    if not results:
-        return None
-    return pd.DataFrame(results)
 
 
 @cached(ttl_key="valuation")
 def get_analyst_forecast(code: str) -> pd.DataFrame | None:
     """
-    分析师盈利预测（同花顺）
-    返回列：预测年度、最小值、均值、最大值、行业平均值 等
+    分析师评级（yfinance recommendations → 转换为兼容格式）
     """
-    pure, _ = normalize_code(code)
-    df = _safe_call(ak.stock_profit_forecast_ths, symbol=pure, indicator="预测年报每股收益")
-    if df is None:
+    yf_code, _ = normalize_code(code)
+    try:
+        ticker = yf.Ticker(yf_code)
+        rec = ticker.recommendations
+        if rec is None or rec.empty:
+            return None
+        # 汇总最近 3 期评级，展开为逐行 "评级" 格式
+        recent = rec.tail(3)
+        rows = []
+        for _, row in recent.iterrows():
+            for label, col in [("买入", "strongBuy"), ("买入", "buy"),
+                                ("中性", "hold"),
+                                ("卖出", "sell"),  ("卖出", "strongSell")]:
+                n = int(row.get(col, 0) or 0)
+                rows.extend([{"评级": label}] * n)
+        return pd.DataFrame(rows) if rows else None
+    except Exception as e:
+        logger.error(f"get_analyst_forecast 失败: {e}")
         return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df
 
 
 @cached(ttl_key="valuation")
 def get_fund_flow(code: str) -> pd.DataFrame | None:
-    """
-    个股资金流向（东方财富，近 100 日）
-    返回列：日期、主力净流入、超大单净流入、大单净流入、中单净流入、小单净流入
-    """
-    pure, market = normalize_code(code)
-    df = _safe_call(
-        ak.stock_individual_fund_flow,
-        stock=pure,
-        market=market,
-    )
-    if df is None:
-        return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df
+    """资金流向（yfinance 不支持，返回 None）"""
+    return None
 
 
 @cached(ttl_key="valuation")
 def get_industry_pe(code: str) -> pd.DataFrame | None:
-    """
-    同行业 PE 比较：获取该股所属行业的行业 PE 历史
-    先查该股行业，再取行业 PE
-    """
-    pure, _ = normalize_code(code)
-    # 先获取所属行业
-    info_df = _safe_call(ak.stock_individual_info_em, symbol=pure)
-    if info_df is None:
-        return None
-    try:
-        info = dict(zip(info_df.iloc[:, 0], info_df.iloc[:, 1]))
-        industry = str(info.get("行业", ""))
-    except Exception:
-        return None
-    if not industry:
-        return None
-
-    # 取申万行业 PE
-    df = _safe_call(
-        ak.stock_board_industry_hist_em,
-        symbol=industry,
-        period="daily",
-        adjust="",
-    )
-    if df is None:
-        return None
-    df = df.copy()
-    df.columns = [c.strip() for c in df.columns]
-    return df
+    """行业 PE（yfinance 不支持，返回 None）"""
+    return None
