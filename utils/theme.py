@@ -218,8 +218,7 @@ hr { border-color: #1a1a2e !important; }
 ::-webkit-scrollbar-thumb { background: #2A2A3D; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #EE1D52; }
 
-/* ── 隐藏右上角工具栏（Fork / GitHub / 菜单）── */
-[data-testid="stToolbar"],
+/* ── 隐藏右上角菜单（保留侧边栏展开按钮）── */
 [data-testid="stDecoration"],
 #MainMenu,
 footer { visibility: hidden !important; height: 0 !important; }
