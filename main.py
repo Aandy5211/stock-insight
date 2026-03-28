@@ -38,6 +38,8 @@ def fmt_pct(val: float) -> str:
 
 
 def fmt_cap(val: float) -> str:
+    if not val:
+        return "—"
     if val >= 10000:
         return f"{val/10000:.2f}万亿"
     elif val >= 1:
